@@ -1,0 +1,22 @@
+  80/4000 games      1s  160/4000 games      1s  240/4000 games      1s  320/4000 games      1s  400/4000 games      1s  480/4000 games     27s  560/4000 games     53s  640/4000 games     76s  720/4000 games    101s  800/4000 games    126s  880/4000 games    223s  960/4000 games    324s  1040/4000 games    412s  1120/4000 games    497s  1200/4000 games    579s  1280/4000 games    680s  1360/4000 games    777s  1440/4000 games    862s  1520/4000 games    956s  1600/4000 games   1053s  1680/4000 games   1072s  1760/4000 games   1095s  1840/4000 games   1124s  1920/4000 games   1151s  2000/4000 games   1172s  2080/4000 games   1265s  2160/4000 games   1357s  2240/4000 games   1441s  2320/4000 games   1530s  2400/4000 games   1618s  2480/4000 games   1728s  2560/4000 games   1831s  2640/4000 games   1938s  2720/4000 games   2041s  2800/4000 games   2148s  2880/4000 games   2219s  2960/4000 games   2305s  3040/4000 games   2409s  3120/4000 games   2514s  3200/4000 games   2609s  3280/4000 games   2696s  3360/4000 games   2789s  3440/4000 games   2878s  3520/4000 games   2977s  3600/4000 games   3067s  3680/4000 games   3202s  3760/4000 games   3339s  3840/4000 games   3474s  3920/4000 games   3612s  4000/4000 games   3741s
+
+Mean set differential (row minus column), 400 games per pairing, 95% CI
+                  random           rule         greedy        rollout         ismcts
+   random      -          -7.36 ± 0.18   -7.73 ± 0.15   -7.15 ± 0.18   -7.18 ± 0.18 
+     rule  +7.36 ± 0.18       -          -2.27 ± 0.27   -2.37 ± 0.28   -2.50 ± 0.25 
+   greedy  +7.73 ± 0.15   +2.27 ± 0.27       -          -0.36 ± 0.23   -0.47 ± 0.27 
+  rollout  +7.15 ± 0.18   +2.37 ± 0.28   +0.36 ± 0.23       -          -0.30 ± 0.26 
+   ismcts  +7.18 ± 0.18   +2.50 ± 0.25   +0.47 ± 0.27   +0.30 ± 0.26       -        
+
+Details (x vs y):
+    random vs rule     diff -7.36 ± 0.18  win 0.00  len   157  decl-acc 1.00/1.00  s/decision 0.000/0.000 (max 0.05/0.05)  truncated 0
+    random vs greedy   diff -7.73 ± 0.15  win 0.00  len   102  decl-acc 0.98/0.98  s/decision 0.000/0.060 (max 0.03/0.54)  truncated 0
+    random vs rollout  diff -7.15 ± 0.18  win 0.00  len    99  decl-acc 0.94/0.94  s/decision 0.000/0.224 (max 0.12/1.25)  truncated 0
+    random vs ismcts   diff -7.18 ± 0.18  win 0.00  len   100  decl-acc 0.95/0.95  s/decision 0.000/0.233 (max 0.08/1.19)  truncated 0
+      rule vs greedy   diff -2.27 ± 0.27  win 0.22  len   136  decl-acc 0.99/0.97  s/decision 0.000/0.055 (max 0.10/0.51)  truncated 0
+      rule vs rollout  diff -2.37 ± 0.28  win 0.20  len   124  decl-acc 0.98/0.94  s/decision 0.000/0.209 (max 0.13/4.10)  truncated 0
+      rule vs ismcts   diff -2.50 ± 0.25  win 0.17  len   125  decl-acc 0.98/0.94  s/decision 0.000/0.251 (max 0.08/1.00)  truncated 0
+    greedy vs rollout  diff -0.36 ± 0.23  win 0.44  len   113  decl-acc 0.97/0.96  s/decision 0.048/0.218 (max 0.54/1.11)  truncated 0
+    greedy vs ismcts   diff -0.47 ± 0.27  win 0.42  len   112  decl-acc 0.96/0.96  s/decision 0.040/0.224 (max 0.51/0.98)  truncated 0
+   rollout vs ismcts   diff -0.30 ± 0.26  win 0.45  len   106  decl-acc 0.93/0.95  s/decision 0.186/0.230 (max 0.97/0.98)  truncated 0
+wrote results/round_robin.png

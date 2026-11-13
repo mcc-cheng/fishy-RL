@@ -1,0 +1,103 @@
+\documentclass[10pt]{article}
+\usepackage[letterpaper,margin=0.75in,top=0.6in,bottom=0.6in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{microtype}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=1pt,parsep=0pt}
+\titleformat{\section}{\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{6pt}{2pt}
+
+\begin{document}
+
+\begin{center}
+  {\large\bfseries Status Update: Belief-Space Planning for the Card Game Fish (Literature)}\\[2pt]
+  [Group member names] \quad|\quad November 13, 2026
+\end{center}
+
+\section*{Problem}
+Fish is a six-player, two-team card game of hidden information: 54 cards form nine sets of six,
+players ask opponents for specific cards, and a team scores a set only by declaring exactly which
+teammate holds each of its cards (a wrong declaration gives the set to the other team). Every ask,
+its outcome and all hand sizes are public, so good play is mostly inference. Our goal is an agent
+that (i) maintains a probabilistic belief over where every hidden card is and (ii) plans with that
+belief, and that beats rule-based baselines. Reward is sets won minus sets lost per game
+(range $-9$ to $+9$).
+
+\section*{What we have accomplished}
+\begin{itemize}
+  \item \textbf{Engine.} Full rules with seeded deals; 10,000 random games complete with
+    card-conservation checks. Rule ambiguities are resolved and documented.
+  \item \textbf{Hard-constraint knowledge.} A public constraint store (who can hold which card,
+    hand sizes, minimum cards per set) with propagation to a fixed point. In 3,300 simulated games
+    the true deal never contradicted any player's view.
+  \item \textbf{Particle belief.} A sampler over deals consistent with the constraints
+    (constructive pass, importance resampling, MCMC swaps). On 12 endgames small enough to
+    enumerate, sampled marginals are within 0.03 of exact. Speed is about 20,000 samples per second.
+  \item \textbf{Agents.} Random, RuleBased, GreedyBelief (ask the likeliest card, declare above a
+    confidence threshold), determinized Rollout, and single-observer ISMCTS. All see only their own
+    hand and public information. Mean decision time is about 0.2\,s for the planners.
+  \item \textbf{Evaluation harness.} Parallel arena with paired deals (teams swapped), CSV logging
+    and plotting scripts; 70 automated tests pass.
+\end{itemize}
+
+\textbf{Results so far} (mean set differential per game, row agent minus column agent, 400 games
+per pairing, 95\% confidence intervals):
+
+\begin{center}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \textbf{vs Random} & \textbf{vs RuleBased} & \textbf{vs GreedyBelief} & \textbf{vs Rollout} \\
+\midrule
+\textbf{RuleBased}    & $+7.36 \pm 0.18$ &                  &                  &                  \\
+\textbf{GreedyBelief} & $+7.73 \pm 0.15$ & $+2.27 \pm 0.27$ &                  &                  \\
+\textbf{Rollout}      & $+7.15 \pm 0.18$ & $+2.37 \pm 0.28$ & $+0.36 \pm 0.23$ &                  \\
+\textbf{ISMCTS}       & $+7.18 \pm 0.18$ & $+2.50 \pm 0.25$ & $+0.47 \pm 0.27$ & $+0.30 \pm 0.26$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item The main goal is met: every belief-based agent beats RuleBased by 2.3 to 2.5 sets per game.
+    Planning adds a smaller but statistically significant edge over the greedy belief agent
+    (about 0.4 sets per game).
+  \item GreedyBelief's declare threshold has a plateau: strength is flat from 0.8 to 0.99 and falls
+    off below about 0.6 (a threshold of 0.3 loses 1.5 sets per game to a threshold of 0.9).
+  \item The belief is well calibrated overall (mean Brier 0.549 against 0.594 for a
+    uniform-over-possible-holders baseline) but under-confident in the 0.4 to 0.8 range, because it
+    ignores what a player's choice of ask says about their hand. Reweighting particles by a simple
+    ask-likelihood model removes most of that gap (Brier 0.541); it is implemented but not yet
+    switched on in the agents.
+\end{itemize}
+
+\section*{Open issues and where we would like feedback}
+\begin{itemize}
+  \item \textbf{Planning gain is modest.} Rollouts use a cheap approximation of the greedy policy
+    for the simulated players and stop after 12 plies with a heuristic leaf value; deeper rollouts
+    did not help in tuning. Is a learned or better-fitted leaf evaluation a reasonable next step, or
+    should we invest in the opponent model instead?
+  \item \textbf{Baselines.} Our strongest non-planning baseline is our own greedy agent.
+    Suggestions for a stronger hand-written baseline would be welcome.
+  \item \textbf{Not finished:} the search-budget versus win-rate curve was interrupted and must be
+    re-run; the round-robin used 400 games per pairing instead of the planned 1,000.
+\end{itemize}
+
+\section*{Revised timeline}
+\begin{tabular}{@{}lp{5.7in}@{}}
+\textbf{Week of Nov 16} & Re-run the budget curve; round-robin at 1,000 games per pairing; evaluate
+  ask-likelihood reweighting inside the agents. \\
+\textbf{Week of Nov 23} & Improve the planners: better leaf evaluation, common random numbers
+  across candidates, tuned opponent model. \\
+\textbf{Week of Nov 30} & Final experiments with fixed seeds; ablations (belief quality versus
+  playing strength); figures. \\
+\textbf{Week of Dec 7}  & Final report and code clean-up. \\
+\end{tabular}
+
+\end{document}

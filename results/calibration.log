@@ -1,0 +1,6 @@
+method                 Brier  log-loss     ECE   (per-turn means over 200 games)
+particles             0.5489    1.0720  0.0088
+particles+reweight    0.5408    1.0597  0.0145
+heuristic             0.5690    1.1100  0.0099
+uniform-possible      0.5939    1.1598  0.0000
+wrote results/calibration.png
