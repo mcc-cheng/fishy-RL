@@ -1,18 +1,0 @@
-  128/6400 games     46s  256/6400 games     89s  384/6400 games    134s  512/6400 games    178s  640/6400 games    220s  768/6400 games    269s  896/6400 games    308s  1024/6400 games    354s  1152/6400 games    391s  1280/6400 games    430s  1408/6400 games    470s  1536/6400 games    517s  1664/6400 games    557s  1792/6400 games    601s  1920/6400 games    636s  2048/6400 games    675s  2176/6400 games    723s  2304/6400 games    768s  2432/6400 games    811s  2560/6400 games    852s  2688/6400 games    892s  2816/6400 games    932s  2944/6400 games    979s  3072/6400 games   1024s  3200/6400 games   1075s  3328/6400 games   1117s  3456/6400 games   1156s  3584/6400 games   1191s  3712/6400 games   1238s  3840/6400 games   1282s  3968/6400 games   1326s  4096/6400 games   1367s  4224/6400 games   1406s  4352/6400 games   1443s  4480/6400 games   1485s  4608/6400 games   1530s  4736/6400 games   1578s  4864/6400 games   1622s  4992/6400 games   1672s  5120/6400 games   1711s  5248/6400 games   1758s  5376/6400 games   1802s  5504/6400 games   1849s  5632/6400 games   1896s  5760/6400 games   1936s  5888/6400 games   1975s  6016/6400 games   2013s  6144/6400 games   2070s  6272/6400 games   2129s  6400/6400 games   2188s
-threshold 0.30 vs rule      : diff +0.13 ± 0.28  win 0.54  declaration accuracy 0.717  len 126
-threshold 0.30 vs greedy@0.9: diff -1.54 ± 0.28  win 0.28  declaration accuracy 0.717  len 113
-threshold 0.50 vs rule      : diff +1.43 ± 0.26  win 0.70  declaration accuracy 0.863  len 132
-threshold 0.50 vs greedy@0.9: diff -0.41 ± 0.26  win 0.41  declaration accuracy 0.884  len 117
-threshold 0.60 vs rule      : diff +1.94 ± 0.24  win 0.76  declaration accuracy 0.918  len 134
-threshold 0.60 vs greedy@0.9: diff -0.22 ± 0.27  win 0.46  declaration accuracy 0.933  len 117
-threshold 0.70 vs rule      : diff +2.10 ± 0.25  win 0.77  declaration accuracy 0.944  len 135
-threshold 0.70 vs greedy@0.9: diff -0.14 ± 0.25  win 0.48  declaration accuracy 0.954  len 118
-threshold 0.80 vs rule      : diff +2.22 ± 0.25  win 0.79  declaration accuracy 0.959  len 136
-threshold 0.80 vs greedy@0.9: diff -0.14 ± 0.25  win 0.47  declaration accuracy 0.961  len 119
-threshold 0.90 vs rule      : diff +2.26 ± 0.25  win 0.79  declaration accuracy 0.964  len 136
-threshold 0.90 vs greedy@0.9: diff -0.12 ± 0.26  win 0.47  declaration accuracy 0.968  len 119
-threshold 0.95 vs rule      : diff +2.26 ± 0.25  win 0.79  declaration accuracy 0.964  len 136
-threshold 0.95 vs greedy@0.9: diff -0.11 ± 0.26  win 0.47  declaration accuracy 0.969  len 119
-threshold 0.99 vs rule      : diff +2.26 ± 0.25  win 0.79  declaration accuracy 0.964  len 136
-threshold 0.99 vs greedy@0.9: diff -0.11 ± 0.26  win 0.47  declaration accuracy 0.969  len 119
-wrote results/threshold_sweep.png
