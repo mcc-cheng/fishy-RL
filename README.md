@@ -1,8 +1,8 @@
 # fishy-RL
 
-A solver for the card game Fish (also called Literature). Given any starting deal, it decides each move for one player by working out where the cards probably are and then picking the move that is best for the team.
+A solver for the card game Fish (also called Literature). You tell it your cards, then type in every move as it happens at the table. Whenever it is your turn, it tells you the best move.
 
-Nothing is trained. The solver works out each move on the spot, and you run everything yourself with the scripts below.
+Nothing is trained. The solver works out each move on the spot from what it has seen.
 
 ## The game in one minute
 
@@ -14,103 +14,7 @@ Nothing is trained. The solver works out each move on the spot, and you run ever
 
 The exact rule choices for edge cases are in `RULES.md`.
 
-## What "optimal" means here
-
-Perfect play of full Fish cannot be computed: there are too many possible deals, and teammates who cannot talk break the methods used to solve games like poker. So the goal is the best move *given what the player can know*, found in a way we can check.
-
-In Fish, most of the skill is working out where the cards are. Once you know that, the right move is usually clear. The method is built around that.
-
-## The method, in five modules
-
-Each module takes the output of the one before it. Each can be tested, and improved, on its own.
-
-```
- game moves ──▶ 1. Rules ──▶ 2. Facts ──▶ 3. Beliefs ──▶ 4. Scoring ──▶ 5. Decision ──▶ move
-                                                                             │
-                                                              6. Checking ◀──┘
-```
-
-### Module 1: Rules
-
-**Job:** know what is legal and what happens after each move.
-
-- **In:** a game position and a move.
-- **Out:** the next position, plus what everyone at the table saw.
-
-This is the referee. Every other module relies on it.
-
-### Module 2: Facts
-
-**Job:** keep track of everything that is certain.
-
-- **In:** the player's own hand and every public move so far.
-- **Out:** for each player and each card: definitely has it, definitely doesn't, or unknown.
-
-Each move rules things out. If someone asks for the 7 of hearts, they don't have it, but they do hold another card from that set. If the ask fails, the person asked doesn't have it either. Facts are chained together: if five players can't hold a card, the sixth must.
-
-### Module 3: Beliefs
-
-**Job:** turn "unknown" into probabilities.
-
-- **In:** the facts from module 2 and the history of asks.
-- **Out:** the chance that each player holds each card.
-
-The solver imagines a few hundred complete deals that fit every fact. If a player holds a card in 80% of them, that is an 80% chance.
-
-It also reads behaviour, not just facts. A player who keeps asking about one set probably holds several cards of it, so imagined deals where that is true count for more.
-
-### Module 4: Scoring
-
-**Job:** say how good a position is for the team.
-
-- **In:** the beliefs from module 3.
-- **Out:** one number for the position.
-
-Each undeclared set scores from −1 to +1 by how much of it the team is expected to hold: all six cards is +1, an even split is 0, none is −1. The position's score is the sum over sets.
-
-### Module 5: Decision
-
-**Job:** pick the move.
-
-- **In:** the legal moves (module 1), the beliefs (module 3) and the scoring (module 4).
-- **Out:** the move to play.
-
-Every legal move gets a number, and the solver plays the highest.
-
-- **An ask** is a gamble. If it works, the team gains a card. If it fails, the turn goes to that opponent, who may take a card back. So the solver prefers asks that are likely to work, aimed at opponents who can do the least damage with the turn.
-- **A declaration** is compared with waiting. The solver declares when the chance of being right is high enough that declaring beats every available ask.
-
-This looks one move ahead. It is the best choice for the current move, not a plan for the whole game.
-
-### Module 6: Checking
-
-**Job:** measure how close the decisions are to the best possible.
-
-- **In:** the solver, and positions to test it on.
-- **Out:** how often it picks the best move, and how much it loses when it doesn't.
-
-Two checks:
-
-1. **Small endgames.** With two or three sets left there are few enough possibilities to work out the truly best move by brute force, and compare.
-2. **Full games.** Over hundreds of random deals, the solver's team plays against simple opponents and should clearly win.
-
-If the checks show a weakness, the fix goes into the module that caused it: wrong probabilities point to module 3, bad trade-offs to module 4 or 5.
-
-## Where each module lives
-
-| Module | File | State |
-|---|---|---|
-| 1. Rules | `fish/cards.py`, `fish/engine.py`, `fish/env.py` | done |
-| 2. Facts | `fish/knowledge.py` | done |
-| 3. Beliefs | `fish/belief.py` | done; reading behaviour to be switched on |
-| 4. Scoring | `fish/value.py` | to write |
-| 5. Decision | `fish/policy.py` | to write |
-| 6. Checking | `fish/exact.py`, `fish/arena.py` | arena done; endgame check to write |
-| Simple opponents | `fish/baselines.py` | done |
-
-Every file has matching tests in `tests/`.
-
-## How to run it
+## Using the solver
 
 Setup, once:
 
@@ -119,26 +23,117 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python numpy pytest
 ```
 
-| Command | What you get | State |
-|---|---|---|
-| `.venv/bin/python -m pytest` | Runs all the tests | works now |
-| `python scripts/play.py --seed 0` | One full game, move by move, showing what the solver considered and why | to write |
-| `python scripts/evaluate.py --games 200` | The solver's team against simple opponents over many random deals | to write |
-| `python scripts/optimality_gap.py` | How often the solver's move matches the best move on small endgames | to write |
+Start it:
 
-Runs use two processes by default and save after every game, so they stay light on memory and can be stopped and resumed.
+```bash
+.venv/bin/python scripts/solve.py
+```
 
-## Build order
+It asks for your cards and who moves first. After that you type one line per move. The player on turn is always the one acting, so you never type who made the move.
 
-1. ~~Restore the rules, facts, beliefs and game runner; remove the old search agents.~~ Done.
-2. Write the scoring (`value.py`).
-3. Write the decision (`policy.py`).
-4. Write `play.py` and `evaluate.py`.
-5. Write the endgame check (`exact.py`, `optimality_gap.py`).
-6. Add results here once they have been run.
+| You type | Meaning |
+|---|---|
+| `a 3 QH y` | The player on turn asked seat 3 for the queen of hearts and got it |
+| `a 3 QH n` | Same ask, but seat 3 did not have it |
+| `a 0 QH` | The player on turn asked you (seat 0); the solver knows whether you have it |
+| `d high-H y 2 0 3 0 1 0` | The player on turn declared the high hearts correctly; seats 0 to 5 held 2, 0, 3, 0, 1, 0 of those cards |
+| `d high-H n 2 1 2 0 1 0` | A wrong declaration, with the same six counts |
+| `best` | Show the best moves again |
+| `show` | Your hand, how many cards everyone holds, and the score |
+| `undo` | Take back the last line you typed |
+| `help`, `quit` | |
+
+When it is your turn the solver prints something like:
+
+```
+Your turn. Best moves:
+  1. ask seat 3 for QH   [84% to get it, value +0.25]
+  2. ask seat 1 for KH   [51% to get it, value +0.06]
+  3. declare low-S (...) [62% to be right, value -0.31]
+```
+
+**Seats** are numbered 0 to 5 clockwise. You are seat 0 unless you pass `--seat`. Your teammates are the seats 2 and 4 places after you.
+
+**Cards** are written rank then suit: `2S`, `TH` (ten of hearts), `QD`, `AC`, and `JK1`, `JK2` for the jokers.
+
+**Sets** are `low-S`, `high-S`, `low-H`, `high-H`, `low-D`, `high-D`, `low-C`, `high-C` (low is 2 to 7, high is 9 to ace) and `eights` (the four 8s and both jokers).
+
+Enter every move at the table, not only your own. What the other players ask for is where the solver gets its information.
+
+To start in the middle of a game, add `--midgame`; it will also ask which sets are gone, how many cards each seat holds and the score.
+
+## How it decides
+
+Every time you enter a move, the solver updates what it knows. On your turn it goes through four steps.
+
+### 1. What is certain?
+
+Each move rules things out:
+
+- Someone who asks for the 7 of hearts doesn't have it, but does hold another card from that set.
+- If the ask fails, the person asked doesn't have it either.
+- If the ask succeeds, everyone now knows where that card is.
+
+Facts are chained together: if five players can't hold a card, the sixth must.
+
+### 2. Where are the other cards, probably?
+
+The solver imagines a few hundred complete deals that fit every fact. If a player holds a card in 80% of them, that is an 80% chance.
+
+It also reads behaviour. A player who keeps asking about one set probably holds several cards of it, so imagined deals where that is true count for more.
+
+### 3. How good is each set for us?
+
+Each undeclared set scores from −1 to +1 by how much of it your team is expected to hold: all six cards is +1, an even split is 0, none is −1.
+
+### 4. Which move is best?
+
+If a declaration is certain to be right, that comes first. Otherwise every legal move gets a value and the highest wins.
+
+- **An ask** is a gamble. If it works, your team gains a card. If it fails, the turn goes to that opponent, who may take a card back. So the solver prefers asks that are likely to work, aimed at opponents who can do the least damage with the turn.
+- **A declaration** is compared with waiting: the chance of being right against what the set is already worth to you undeclared.
+
+This looks one move ahead. It is the best choice for the current move given what you can know, not a plan for the whole game. Perfect play of full Fish cannot be computed.
+
+## What's in the code
+
+| File | What it does |
+|---|---|
+| `scripts/solve.py` | The interactive program described above |
+| `fish/solver.py` | The solver: takes your hand and the moves, returns ranked moves |
+| `fish/knowledge.py` | Step 1: what is certain |
+| `fish/belief.py` | Step 2: where the cards probably are |
+| `fish/cards.py`, `fish/engine.py` | Card names and the rules of the game |
+| `fish/env.py` | Runs a complete simulated game (used for testing) |
+| `fish/baselines.py`, `fish/arena.py` | Simple computer players and a game runner (used for testing) |
+
+You can also use the solver from Python:
+
+```python
+from fish.solver import Solver, describe
+
+solver = Solver(seat=0, hand=["2S", "3S", "QH", "KH", "8D", "JK1", "9C", "TC", "AC"], first_player=3)
+solver.ask(target=0, card="4S")          # seat 3 asks you and misses; now it's your turn
+for move in solver.best_moves(top=3):
+    print(describe(move), f"{move.chance:.0%}")
+```
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest
+```
+
+`tests/test_solver.py` plays a full simulated game with the solver in one seat and checks that it follows the game correctly and only ever suggests legal moves.
+
+## Still to do
+
+- Measure how good the advice is: play the solver against the simple computer players over many deals, and compare its choices with brute-force best moves on small endgames.
+- Tune based on what that shows.
 
 ## Things to know
 
-- **The game is played to all 9 sets.** The project proposal says to stop at 5; that would be a small change.
-- **The solver looks one move ahead.** It will not make an ask just to learn something, which strong human players sometimes do. Earlier experiments on this project found that looking further ahead added little compared with getting the beliefs right.
-- **It assumes others ask about sets they hold a lot of.** An opponent who bluffs can mislead it.
+- **The game is played to all 9 sets.** Stopping at 5 would be a small change.
+- **The solver looks one move ahead.** It will not suggest an ask just to learn something, which strong human players sometimes do.
+- **It assumes others ask about sets they hold a lot of.** A player who bluffs can mislead it. `--alpha 0` switches this off.
+- **After a wrong declaration it needs the card counts,** meaning how many cards of that set each seat held. At a real table these are visible when the cards are handed in.
