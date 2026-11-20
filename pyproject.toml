@@ -6,7 +6,8 @@ requires-python = ">=3.11"
 dependencies = ["numpy"]
 
 [project.optional-dependencies]
-dev = ["pytest", "matplotlib"]
+dev = ["pytest"]
+rl = ["torch"]
 
 [tool.setuptools]
 packages = ["fish"]
