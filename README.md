@@ -118,6 +118,30 @@ for move in solver.best_moves(top=3):
     print(describe(move), f"{move.chance:.0%}")
 ```
 
+## Learning the scoring by self-play (in progress)
+
+The scoring in steps 3 and 4 above is written by hand. The plan is to replace it with a value network trained by reinforcement learning: the program plays against itself and learns to predict, from what a player knows, how the game will end.
+
+| File | What it does |
+|---|---|
+| `fish/features.py` | Turns what a player knows into a list of 725 numbers |
+| `fish/value_net.py` | The network: those numbers in, predicted result out |
+| `fish/chooser.py` | Picks a move by scoring the positions each move can lead to |
+| `fish/selfplay.py` | Plays training games and builds the learning targets |
+| `scripts/train.py` | The training loop |
+
+To train (needs PyTorch):
+
+```bash
+uv pip install --python .venv/bin/python torch
+.venv/bin/python scripts/train.py --games 2000
+.venv/bin/python scripts/train.py --games 5000 --resume   # continue later
+```
+
+Every 50 games it saves `checkpoints/net.pt`, plays 10 games against the rule-based player and prints the result. Stop it any time with Ctrl-C; it saves before exiting.
+
+Still to do here: a fuller evaluation script, and letting `scripts/solve.py` use a trained network.
+
 ## Tests
 
 ```bash
