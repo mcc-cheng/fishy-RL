@@ -1,4 +1,4 @@
-"""The solver: following a game from one seat and recommending moves."""
+"""The solver's game tracking, and the heuristic that ranks moves when no network is given."""
 from __future__ import annotations
 
 import numpy as np
@@ -8,7 +8,8 @@ from fish.baselines import RuleBasedAgent
 from fish.cards import N_CARDS, N_PLAYERS, mask_to_cards
 from fish.engine import Ask, AskObs, Declare, validate_action
 from fish.env import FishEnv
-from fish.solver import GAIN, BadInput, Solver, describe
+from fish.heuristic import GAIN, HeuristicAgent
+from fish.solver import BadInput, Solver, describe
 
 
 def feed(solver: Solver, obs) -> None:
@@ -144,3 +145,15 @@ def test_same_seed_gives_same_advice():
                    n_particles=80, seed=7)
         return [(m.action, round(m.value, 9)) for m in s.best_moves()]
     assert advice() == advice()
+
+
+def test_heuristic_agent_plays_paired_games():
+    from fish.env import duel
+
+    agent, rule = HeuristicAgent(n_particles=40), RuleBasedAgent()
+    first = duel(agent, rule, 0, seed=4)
+    again = duel(agent, rule, 0, seed=4)
+    swapped = duel(agent, rule, 1, seed=4)
+    assert first == again  # seeded
+    for margin, length, truncated in (first, swapped):
+        assert not truncated and abs(margin) % 2 == 1 and -9 <= margin <= 9 and length > 9

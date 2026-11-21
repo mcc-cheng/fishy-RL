@@ -55,7 +55,7 @@ standard Literature/Fish convention was used. Everything below is implemented in
   is `player`'s turn). Declarations are too numerous to enumerate (up to 3⁶ per
   set); `declarable_sets` lists the sets that may be declared and
   `validate_action` / `step` check a concrete `Declare`.
-- The arena stops a game after 3,000 actions and marks it `truncated` (remaining
+- Simulated games are stopped after 3,000 actions and marked `truncated` (remaining
   sets unscored). This is a safety net for random play.
 
 ## Agent conventions (not rules)

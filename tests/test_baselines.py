@@ -6,24 +6,22 @@ import inspect
 import numpy as np
 import pytest
 
-from fish.arena import play_game, play_match_game, summarize
 from fish.baselines import (
-    AGENT_TYPES,
     RandomAgent,
     RuleBasedAgent,
     certain_declaration,
     guess_declaration,
     legal_asks,
-    make_agent,
 )
 from fish.cards import N_CARDS, parse_card
 from fish.engine import Ask, Declare, State, is_terminal, legal_actions, new_game, step, validate_action
+from fish.env import FishEnv, duel
 from fish.knowledge import Knowledge, View
 from tests.test_engine import _state, random_policy
 from tests.test_knowledge import tiny
 
 C = parse_card
-ALL = [("random", {}), ("rule", {})]
+ALL = [RandomAgent, RuleBasedAgent]
 
 
 def known_card_scenario():
@@ -39,18 +37,21 @@ def known_card_scenario():
     return s, pub
 
 
-@pytest.mark.parametrize("spec", ALL, ids=lambda s: s[0])
-def test_agents_play_full_legal_games(spec):
-    """Self-play with engine validation and view-vs-truth consistency checks on."""
+@pytest.mark.parametrize("cls", ALL, ids=lambda c: c.__name__)
+def test_agents_play_full_legal_games(cls):
+    """Self-play; the environment rejects illegal moves, and every view must fit the truth."""
     for seed in range(2):
-        agents = [make_agent(spec[0], **spec[1]) for _ in range(6)]
-        res = play_game(agents, np.random.default_rng(seed), np.random.default_rng(seed + 100),
-                        check=True)
-        assert not res["truncated"] and sum(res["score"]) == 9
+        agent, rng = cls(), np.random.default_rng(seed + 100)
+        env = FishEnv()
+        view = env.reset(seed=seed)
+        while not env.done:
+            assert view.know.consistent_with(env.state)
+            view, _ = env.step(agent.act(view, rng))
+        assert sum(env.score) == 9
 
 
 def test_agents_only_receive_views():
-    for cls in AGENT_TYPES.values():
+    for cls in ALL:
         params = list(inspect.signature(cls.act).parameters)
         assert params == ["self", "view", "rng"]
     assert View._fields == ("player", "hand", "public", "know")
@@ -86,8 +87,8 @@ def test_certain_declaration_is_taken_by_every_agent():
     v = pub.view_for(0, s)
     want = Declare(0, (0,) * 6)
     assert certain_declaration(v.know, 0) == want
-    for kind, kw in ALL:
-        assert make_agent(kind, **kw).act(v, np.random.default_rng(0)) == want
+    for cls in ALL:
+        assert cls().act(v, np.random.default_rng(0)) == want
     # a teammate who sees the public transfer does not know the other four cards
     assert certain_declaration(pub.view_for(2, s).know, 2) is None
 
@@ -110,8 +111,8 @@ def test_forced_declaration_when_opponents_are_out():
     pub.score = [4, 4]
     v = pub.view_for(0, s)
     assert legal_asks(v) == []
-    for kind, kw in ALL:
-        a = make_agent(kind, **kw).act(v, np.random.default_rng(1))
+    for cls in ALL:
+        a = cls().act(v, np.random.default_rng(1))
         assert isinstance(a, Declare) and a.set_id == 0 and a.assignment[:3] == (0, 0, 0)
         assert all(q in (2, 4) for q in a.assignment[3:])
         validate_action(s, a)
@@ -131,13 +132,13 @@ def test_forced_guess_respects_hand_sizes():
 
 
 def test_agents_are_seeded():
-    rows = [play_match_game(("rule", {}), ("random", {}), g, seed=3) for g in (0, 0, 1)]
-    keys = ("sets_x", "sets_y", "length", "decl_x", "decl_correct_x")
-    assert all(rows[0][k] == rows[1][k] for k in keys)
-    assert rows[0]["deal"] == rows[2]["deal"] and rows[0]["x_team"] != rows[2]["x_team"]
+    rule, rand = RuleBasedAgent(), RandomAgent()
+    assert duel(rule, rand, 0, seed=3) == duel(rule, rand, 0, seed=3)
 
 
 def test_rule_based_beats_random():
-    rows = [play_match_game(("rule", {}), ("random", {}), g, seed=11) for g in range(40)]
-    s = summarize(rows)
-    assert s["mean_diff"] - s["ci95"] > 0, s
+    rule, rand = RuleBasedAgent(), RandomAgent()
+    margins = np.array([duel(rule, rand, g, seed=11)[0] for g in range(40)], dtype=float)
+    per_deal = margins.reshape(-1, 2).mean(1)  # each deal is played from both sides
+    ci95 = 1.96 * per_deal.std(ddof=1) / np.sqrt(len(per_deal))
+    assert per_deal.mean() - ci95 > 0, (per_deal.mean(), ci95)

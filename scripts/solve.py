@@ -6,6 +6,10 @@ table.  Whenever it is your turn it prints the best moves.
 
     python scripts/solve.py
     python scripts/solve.py --seat 2 --particles 500
+    python scripts/solve.py --heuristic      # hand-written scoring, no network
+
+Moves are ranked by the trained network in ``--checkpoint`` (made by
+``scripts/train.py``).  If there is none, the hand-written heuristic is used.
 
 Seats are numbered 0-5 clockwise.  Your teammates are the seats 2 and 4 places
 after you; everyone else is an opponent.
@@ -99,7 +103,31 @@ def show_advice(solver: Solver, top: int, last: dict[int, tuple[int, ...]]) -> N
     print()
 
 
-def start(args: argparse.Namespace) -> Solver:
+def load_net(args: argparse.Namespace):
+    """The trained network, or None to use the heuristic."""
+    if args.heuristic:
+        print("Using the hand-written heuristic.")
+        return None
+    if not os.path.exists(args.checkpoint):
+        print(f"No trained network at {args.checkpoint} (train one with scripts/train.py); "
+              "using the hand-written heuristic.")
+        return None
+    try:
+        from fish.value_net import load
+    except ImportError:
+        print("PyTorch is not installed; using the hand-written heuristic.")
+        return None
+    try:
+        net, info = load(args.checkpoint)
+    except ValueError as err:  # trained with an older version of the code
+        print(f"Cannot use {args.checkpoint} ({err}); retrain it with scripts/train.py. "
+              "Using the hand-written heuristic.")
+        return None
+    print(f"Using the trained network in {args.checkpoint} ({info.get('games', '?')} training games).")
+    return net
+
+
+def start(args: argparse.Namespace, net) -> Solver:
     print("Seats are 0-5 clockwise. You are seat "
           f"{args.seat}; your teammates are seats {(args.seat + 2) % 6} and {(args.seat + 4) % 6}.")
     while True:
@@ -117,7 +145,7 @@ def start(args: argparse.Namespace) -> Solver:
             hand = ask_line("Your cards (e.g. 2S 3S QH 8D JK1 ...): ").replace(",", " ").split()
             first = seat_of(ask_line("Which seat moves first? "))
             return Solver(args.seat, hand, first, n_particles=args.particles,
-                          alpha=args.alpha, seed=args.seed, **extra)
+                          alpha=args.alpha, seed=args.seed, net=net, **extra)
         except BadInput as err:
             print(f"  ! {err}. Let's try again.")
 
@@ -133,9 +161,12 @@ def main() -> None:
     ap.add_argument("--top", type=int, default=5, help="how many moves to show (default 5)")
     ap.add_argument("--midgame", action="store_true",
                     help="start from the middle of a game (asks for card counts and score)")
+    ap.add_argument("--checkpoint", default="checkpoints/net.pt", help="trained network to use")
+    ap.add_argument("--heuristic", action="store_true",
+                    help="use the hand-written heuristic instead of the network")
     args = ap.parse_args()
 
-    solver = start(args)
+    solver = start(args, load_net(args))
     print("\n" + solver.summary())
     print("Type 'help' for the commands.\n")
     last: dict[int, tuple[int, ...]] = {}  # declarations suggested in the last advice

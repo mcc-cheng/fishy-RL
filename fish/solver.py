@@ -1,6 +1,7 @@
 """The solver: tell it your cards and every move at the table, ask it what to play.
 
-    solver = Solver(seat=0, hand=["2S", "3S", "QH", ...], first_player=3)
+    net, _ = load("checkpoints/net.pt")             # the trained network
+    solver = Solver(seat=0, hand=["2S", "3S", "QH", ...], first_player=3, net=net)
     solver.ask(target=0, card="4S")                 # seat 3 asks you; you don't have it
     for move in solver.best_moves(top=3):           # now it is your turn
         print(describe(move), move.chance)
@@ -12,76 +13,41 @@ other, so your teammates are the two seats that differ from yours by 2 and 4.
 The solver has to hear about *every* move at the table, not only your own:
 what the other players ask for is where its information comes from.
 
-How a move is chosen
---------------------
-1. If a declaration is certain to be right, play it.
-2. Otherwise imagine a few hundred complete deals that fit everything seen so
-   far, and use them as probabilities for where each card is.
-3. Score every legal move and play the highest:
-
-   * an ask is worth ``chance * GAIN - (1 - chance) * threat``.  ``GAIN`` is
-     what one card is worth; ``threat`` is how much the asked opponent is
-     expected to take back if the ask fails and they get the turn;
-   * a declaration is worth ``(2 * chance - 1) - (what the set is worth now)``,
-     i.e. the expected result of declaring compared with holding on.
+Moves are ranked by a value network trained by self-play
+(:mod:`fish.chooser`).  Without a network the hand-written heuristic
+(:mod:`fish.heuristic`) is used instead.
 """
 from __future__ import annotations
 
-from typing import Iterable, NamedTuple, Sequence, Union
+from typing import Iterable, Sequence, Union
 
 import numpy as np
 
-from .baselines import guess_declaration
-from .belief import ask_likelihood_weights, best_declaration, marginals, sample_deals
+from .baselines import certain_declaration
+from .belief import ask_likelihood_weights, marginals, sample_deals
 from .cards import (
     HAND_SIZE,
     N_CARDS,
     N_PLAYERS,
     N_SETS,
-    OPPONENTS,
     SET_MASKS,
     SET_SIZE,
-    TEAMMATES,
     card_name,
     format_hand,
     parse_card,
     set_name,
 )
-from .engine import Action, Ask, AskObs, Declare, DeclareObs, PublicObs, enumerate_asks, resolve_turn
+from .engine import AskObs, DeclareObs, PublicObs, resolve_turn
+from .heuristic import Move, describe, rank_moves
 from .knowledge import Contradiction, Knowledge
 
-Card = Union[int, str]
+__all__ = ["BadInput", "Move", "Solver", "describe"]
 
-# A set is scored from -1 (opponents hold all six cards) to +1 (we hold all
-# six), so moving one card to our side is worth 2/6.
-GAIN = 2.0 / SET_SIZE
+Card = Union[int, str]
 
 
 class BadInput(ValueError):
     """The move that was entered is not possible in the current position."""
-
-
-class Move(NamedTuple):
-    """A candidate move with its score.
-
-    ``chance`` is the probability that the ask succeeds or that the declaration
-    is correct.  ``certain`` marks a declaration that is proven right.
-    """
-
-    action: Action
-    value: float
-    chance: float
-    certain: bool
-
-
-def describe(move: Move | Action) -> str:
-    """A move in words, e.g. ``'ask seat 3 for QH'``."""
-    action = move.action if isinstance(move, Move) else move
-    if isinstance(action, Ask):
-        return f"ask seat {action.target} for {card_name(action.card)}"
-    base = SET_SIZE * action.set_id
-    who = ", ".join(f"{card_name(base + i)}: seat {q}" for i, q in enumerate(action.assignment))
-    return f"declare {set_name(action.set_id)} ({who})"
 
 
 def _card(card: Card) -> int:
@@ -118,6 +84,10 @@ class Solver:
         set.  0 switches this off.
     seed:
         Makes the recommendations repeatable.
+    net:
+        A trained value network (from :func:`fish.value_net.load`).  With it,
+        moves are ranked by the network; without it, by the hand-written
+        heuristic in :mod:`fish.heuristic`.
     """
 
     def __init__(
@@ -131,6 +101,7 @@ class Solver:
         n_particles: int = 300,
         alpha: float = 1.0,
         seed: int = 0,
+        net=None,
     ) -> None:
         if not 0 <= seat < N_PLAYERS:
             raise BadInput("seat must be 0-5")
@@ -158,6 +129,7 @@ class Solver:
         self.seat = seat
         self.n_particles = n_particles
         self.alpha = alpha
+        self.net = net
         self.rng = np.random.default_rng(seed)
         self.hand = mask
 
@@ -334,75 +306,27 @@ class Solver:
     def best_moves(self, top: int | None = None) -> list[Move]:
         """Your legal moves, best first (only on your turn).
 
-        Certain declarations come first, then everything else by ``value``.
-        Declarations that are known to be wrong are left out.
+        Declarations that are known to be wrong are left out.  With a
+        network, ``value`` is the expected final set margin divided by 9; with
+        the heuristic it is that module's own score.
         """
         if self.done:
             raise BadInput("the game is over")
-        me = self.seat
-        k = self.know
-        if k.turn != me:
-            raise BadInput(f"it is seat {k.turn}'s turn, not yours")
-        team = me & 1
-        mates, opps = TEAMMATES[me], OPPONENTS[me]
-        live = self.live_sets()
-        team_known = k.known[mates[0]] | k.known[mates[1]] | k.known[mates[2]]
-        opp_known = k.known[opps[0]] | k.known[opps[1]] | k.known[opps[2]]
+        if self.turn != self.seat:
+            raise BadInput(f"it is seat {self.turn}'s turn, not yours")
+        if self.net is None:
+            moves = rank_moves(self.know, self.public, self.seat, self.hand, self.rng,
+                               self.n_particles, self.alpha)
+        else:
+            from .chooser import score_moves  # needs PyTorch, so only loaded when used
 
-        moves: list[Move] = []
-        sure: set[int] = set()
-        for h in live:
-            if team_known & SET_MASKS[h] == SET_MASKS[h]:
-                sigma = tuple(k.known_owner(c) for c in range(SET_SIZE * h, SET_SIZE * (h + 1)))
-                moves.append(Move(Declare(h, sigma), 0.0, 1.0, True))
-                sure.add(h)
-
-        # where the cards probably are, from your point of view
-        parts = sample_deals(k, self.n_particles, self.rng)
-        w = ask_likelihood_weights(parts, k, self.alpha)
-        P = marginals(parts, w)
-        ours = (parts >= 0) & ((parts & 1) == team)
-        share = w @ ours.reshape(-1, N_SETS, SET_SIZE).sum(2)   # expected cards we hold, per set
-        worth = 2.0 * share / SET_SIZE - 1.0                    # each set, from -1 to +1
-
-        asks = enumerate_asks(me, self.hand, k.hand_size)
-        if asks:
-            threat = self._threats(parts, w)
-            for a in asks:
-                p = float(P[a.target, a.card])
-                moves.append(Move(a, p * GAIN - (1.0 - p) * threat[a.target], p, False))
-
-        for h in live:
-            if h in sure or opp_known & SET_MASKS[h]:
-                continue
-            sigma, p = best_declaration(parts, team, h, w)
-            if sigma is not None:
-                moves.append(Move(Declare(h, sigma), (2.0 * p - 1.0) - float(worth[h]), p, False))
-
-        if not moves:  # forced to declare something that cannot be right
-            guess = guess_declaration(k, me, float(self.rng.random()))
-            moves.append(Move(guess, -1.0 - float(worth[guess.set_id]), 0.0, False))
-        moves.sort(key=lambda m: (not m.certain, -m.value, -m.chance))
+            sure = certain_declaration(self.know, self.seat)
+            scored = score_moves(self.net, self.know, self.public, self.seat, self.hand, self.rng,
+                                 n_particles=self.n_particles, alpha=self.alpha,
+                                 max_asks=N_CARDS * N_PLAYERS)  # look at every ask
+            moves = [Move(s.action, s.value, s.chance, s.action == sure) for s in scored]
         return moves if top is None else moves[:top]
 
     def best_move(self) -> Move:
         """The recommended move."""
         return self.best_moves(1)[0]
-
-    def _threats(self, parts: np.ndarray, w: np.ndarray) -> dict[int, float]:
-        """For each opponent: what they are expected to gain from one ask if
-        they get the turn.
-
-        An opponent can take a card from us when (a) they hold another card of
-        its set, which is judged from your own beliefs, and (b) they know where
-        it is, which is judged from what is *public* (they cannot see your hand).
-        """
-        pub = sample_deals(self.public, self.n_particles, self.rng)
-        Q = marginals(pub, ask_likelihood_weights(pub, self.public, self.alpha))
-        mates = list(TEAMMATES[self.seat])
-        exposed = Q[mates].max(0).reshape(N_SETS, SET_SIZE).max(1)  # per set
-        out: dict[int, float] = {}
-        for j in OPPONENTS[self.seat]:
-            in_set = w @ (parts == j).reshape(-1, N_SETS, SET_SIZE).any(2)
-            out[j] = GAIN * float((exposed * in_set).max())
-        return out

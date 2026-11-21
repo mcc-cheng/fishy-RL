@@ -1,7 +1,7 @@
 [project]
 name = "fish"
 version = "0.1.0"
-description = "Belief-space planning agents for the card game Fish (Literature)"
+description = "A reinforcement-learning solver for the card game Fish (Literature)"
 requires-python = ">=3.11"
 dependencies = ["numpy"]
 

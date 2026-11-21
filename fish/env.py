@@ -173,3 +173,24 @@ class FishEnv:
         lines.append(f"score A {s.score[0]} - B {s.score[1]}"
                      + (f"   sets left: {', '.join(left)}" if left else "   game over"))
         return "\n".join(lines)
+
+
+def duel(a, b, game: int, seed: int = 0, max_actions: int = 3000) -> tuple[int, int, bool]:
+    """One game between player ``a``'s team and player ``b``'s team.
+
+    Players are anything with ``act(view, rng)``.  Games come in pairs on the
+    same deal: games ``2d`` and ``2d + 1`` both use deal ``d``, with ``a`` on
+    the even seats in the first and on the odd seats in the second, so card
+    luck mostly cancels.  Returns ``a``'s set margin, the number of moves and
+    whether the game was cut off at ``max_actions``.
+    """
+    env = FishEnv()
+    a_team = game % 2
+    view = env.reset(seed=[seed, game // 2])
+    rng = np.random.default_rng([seed, game, 1])
+    n = 0
+    while not env.done and n < max_actions:
+        player = a if view.player % 2 == a_team else b
+        view, _ = env.step(player.act(view, rng))
+        n += 1
+    return env.score[a_team] - env.score[1 - a_team], n, not env.done

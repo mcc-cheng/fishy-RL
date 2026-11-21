@@ -11,7 +11,7 @@ a best guess when a declaration is forced.
 """
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
 
 import numpy as np
 
@@ -175,15 +175,3 @@ class RuleBasedAgent:
         sure = [a for a in asks if k.known[a.target] >> a.card & 1]
         pool = sure or asks
         return pool[int(rng.integers(len(pool)))]
-
-
-# ================================================================== registry
-AGENT_TYPES: dict[str, type] = {
-    "random": RandomAgent,
-    "rule": RuleBasedAgent,
-}
-
-
-def make_agent(kind: str, **kwargs: Any) -> Agent:
-    """Instantiate an agent by registry name (specs stay picklable for multiprocessing)."""
-    return AGENT_TYPES[kind](**kwargs)

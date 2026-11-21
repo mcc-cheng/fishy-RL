@@ -1,10 +1,10 @@
 # fishy-RL
 
-A solver for the card game Fish (also called Literature). You tell it your cards, then type in every move as it happens at the table. Whenever it is your turn, it tells you the best move.
+A solver for the card game Fish (aka Literature) using reinforcement learning. You tell it your cards, then type in every move as it happens at the table. Whenever it is your turn, it tells you the best move.
 
-Nothing is trained. The solver works out each move on the spot from what it has seen.
+The solver learns by playing games against itself and against a hand-written baseline. 
 
-## The game in one minute
+## Rules of fish
 
 - Six players in two teams of three. 54 cards, split into 9 sets of 6.
 - On your turn you **ask** one opponent for a specific card. You must already hold another card from the same set. If they have it, you take it and go again. If not, the turn passes to them.
@@ -14,16 +14,42 @@ Nothing is trained. The solver works out each move on the spot from what it has 
 
 The exact rule choices for edge cases are in `RULES.md`.
 
-## Using the solver
-
-Setup, once:
+## Setup
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python numpy pytest
+uv pip install --python .venv/bin/python numpy pytest torch
 ```
 
-Start it:
+## The three steps
+
+### 1. Train the solver
+
+```bash
+.venv/bin/python scripts/train.py --games 2000
+.venv/bin/python scripts/train.py --games 5000 --resume   # continue later
+```
+
+Every 100 games it saves `checkpoints/net.pt`, plays 20 games against the rule-based player and 20 against the heuristic, and prints both results. The same numbers go into `checkpoints/net_log.csv`, which gives a learning curve. Stop it any time with Ctrl-C; it saves before exiting.
+
+### 2. Measure it
+
+```bash
+.venv/bin/python scripts/evaluate.py --games 100
+```
+
+This plays the solver against the two baselines and prints its average set margin against each, with a confidence interval. Every deal is played twice with the teams swapped, so card luck mostly cancels. Results are saved to `results/evaluate.csv`; add `--resume` to continue a stopped run.
+
+The players you can name with `--player` and `--against`:
+
+| Name | What it is |
+|---|---|
+| `solver` | The trained network |
+| `heuristic` | Hand-written scoring of moves; nothing is learned |
+| `rule` | Asks for cards it knows about, otherwise asks at random |
+| `random` | Asks at random |
+
+### 3. Use it at the table
 
 ```bash
 .venv/bin/python scripts/solve.py
@@ -43,15 +69,6 @@ It asks for your cards and who moves first. After that you type one line per mov
 | `undo` | Take back the last line you typed |
 | `help`, `quit` | |
 
-When it is your turn the solver prints something like:
-
-```
-Your turn. Best moves:
-  1. ask seat 3 for QH   [84% to get it, value +0.25]
-  2. ask seat 1 for KH   [51% to get it, value +0.06]
-  3. declare low-S (...) [62% to be right, value -0.31]
-```
-
 **Seats** are numbered 0 to 5 clockwise. You are seat 0 unless you pass `--seat`. Your teammates are the seats 2 and 4 places after you.
 
 **Cards** are written rank then suit: `2S`, `TH` (ten of hearts), `QD`, `AC`, and `JK1`, `JK2` for the jokers.
@@ -60,11 +77,9 @@ Your turn. Best moves:
 
 Enter every move at the table, not only your own. What the other players ask for is where the solver gets its information.
 
-To start in the middle of a game, add `--midgame`; it will also ask which sets are gone, how many cards each seat holds and the score.
+If there is no trained network, or you pass `--heuristic`, the hand-written heuristic gives the advice instead. To start in the middle of a game, add `--midgame`.
 
-## How it decides
-
-Every time you enter a move, the solver updates what it knows. On your turn it goes through four steps.
+## How the solver decides
 
 ### 1. What is certain?
 
@@ -78,69 +93,105 @@ Facts are chained together: if five players can't hold a card, the sixth must.
 
 ### 2. Where are the other cards, probably?
 
-The solver imagines a few hundred complete deals that fit every fact. If a player holds a card in 80% of them, that is an 80% chance.
+The solver imagines many complete deals that fit every fact. If a player holds a card in 80% of them, that is an 80% chance.
 
 It also reads behaviour. A player who keeps asking about one set probably holds several cards of it, so imagined deals where that is true count for more.
 
-### 3. How good is each set for us?
+### 3. Who will end up with each set?
 
-Each undeclared set scores from −1 to +1 by how much of it your team is expected to hold: all six cards is +1, an even split is 0, none is −1.
+For every set still in play, a small neural network predicts who will win it: +1 for your team, −1 for the opponents. This is the part that is learned.
+
+The network does not look at individual cards. It sees about twenty numbers that describe one set at a time, such as:
+
+- how many of its cards your team probably holds, and the chance your team holds all six;
+- how many of its cards you can place for certain, and how many everyone can;
+- whose turn it is, and whether that player holds a card of the set;
+- if it is your turn, your best chance of winning a card of the set.
+
+The same network is used for all nine sets, so what it learns about one set carries over to the others. A position is worth the sets already scored plus the predictions for the rest.
 
 ### 4. Which move is best?
 
-If a declaration is certain to be right, that comes first. Otherwise every legal move gets a value and the highest wins.
+If a declaration is certain to be right, that comes first. Otherwise, for each move the solver works out the positions it can lead to (an ask works or fails; a declaration is right or wrong), scores each with the network, and weights them by how likely they are. The move with the best expected result wins.
 
-- **An ask** is a gamble. If it works, your team gains a card. If it fails, the turn goes to that opponent, who may take a card back. So the solver prefers asks that are likely to work, aimed at opponents who can do the least damage with the turn.
-- **A declaration** is compared with waiting: the chance of being right against what the set is already worth to you undeclared.
+## How the solver learns
 
-This looks one move ahead. It is the best choice for the current move given what you can know, not a plan for the whole game. Perfect play of full Fish cannot be computed.
+The network starts knowing nothing. It improves by playing games and comparing its predictions with what happened: for every set, whether the team went on to win it (+1) or lose it (−1).
+
+Who plays the training games:
+
+1. **Warm start.** The first 200 games are played entirely by the heuristic, and the network learns how those games turn out.
+2. **Mostly itself.** After that, about 70% of games are the network in all six seats.
+3. **Sometimes the heuristic.** In the other 30% the network's team plays a team of three heuristic players.
+
+`--warmup` and `--heuristic-share` change these numbers, and `--past-share 0.1` adds games against older saved copies of the network.
+
+To compare training setups, train one network per setup and measure each the same way:
+
+```bash
+.venv/bin/python scripts/train.py --games 2000 --warmup 0 --heuristic-share 0 --out checkpoints/selfplay.pt
+.venv/bin/python scripts/train.py --games 2000 --heuristic-share 1 --out checkpoints/heuristic_only.pt
+.venv/bin/python scripts/evaluate.py --checkpoint checkpoints/selfplay.pt --out results/selfplay.csv
+```
+
+## Results so far
+
+The solver's average set margin per game (out of 9 sets) over 100 games against each baseline, with 95% confidence intervals. Positive means the solver did better.
+
+| Training setup | Against `rule` | Against `heuristic` |
+|---|---|---|
+| Self-play only, learning from the final result | −0.10 ± 0.61 (52% wins) | −3.52 ± 0.49 (9% wins) |
+| Self-play only, each declared set as a reward | +0.54 ± 0.53 (56% wins) | −2.94 ± 0.60 (17% wins) |
+| Warm start, mixed opponents, card probabilities as input (650 games) | about −0.2 | about −3.6 |
+| One prediction per set from a few numbers per set (current setup, 2000 games) | about +3.6 (93% wins) | about +0.6 (60% wins) |
+
+The last two rows come from the short checks during training, not from a full evaluation: 10 games for the third row, and the average of the last ten 20-game checks for the fourth. Those checks reuse the same ten deals, so each number can be off by about a set.
+
+The first three rows all used one large network that read every card separately (725 or 1049 inputs) and predicted the final score in one number. None got past the rule-based player: with a few hundred games, that network memorises the games it has seen instead of learning what makes a position good.
+
+The current setup replaced it and is the first that works. It beats the rule-based player by a wide margin and plays about as well as the heuristic. Whether it is really ahead of the heuristic needs a full evaluation. The earlier checkpoints no longer load.
+
+## The heuristic baseline
+
+The heuristic uses steps 1 and 2 above, then scores moves with fixed formulas instead of a network:
+
+- **An ask** is a gamble. If it works, your team gains a card. If it fails, the turn goes to that opponent, who may take a card back. So it prefers asks that are likely to work, aimed at opponents who can do the least damage with the turn.
+- **A declaration** is compared with waiting: the chance of being right against what the set is already worth undeclared.
+
+It is the opponent the solver trains against and the bar the solver has to clear.
 
 ## What's in the code
 
 | File | What it does |
 |---|---|
-| `scripts/solve.py` | The interactive program described above |
-| `fish/solver.py` | The solver: takes your hand and the moves, returns ranked moves |
+| `scripts/train.py` | Trains the network |
+| `scripts/evaluate.py` | Plays one player against others and reports the results |
+| `scripts/solve.py` | The interactive program |
+| `fish/cards.py`, `fish/engine.py` | Card names and the rules of the game |
+| `fish/env.py` | Runs a complete simulated game |
 | `fish/knowledge.py` | Step 1: what is certain |
 | `fish/belief.py` | Step 2: where the cards probably are |
-| `fish/cards.py`, `fish/engine.py` | Card names and the rules of the game |
-| `fish/env.py` | Runs a complete simulated game (used for testing) |
-| `fish/baselines.py`, `fish/arena.py` | Simple computer players and a game runner (used for testing) |
+| `fish/features.py` | Describes each set in a position with about twenty numbers |
+| `fish/value_net.py` | Step 3: the network |
+| `fish/chooser.py` | Step 4: picks a move with the network |
+| `fish/selfplay.py` | Plays training games and builds the learning targets |
+| `fish/solver.py` | Follows a game from your seat as you type moves in, and ranks your moves |
+| `fish/heuristic.py` | The hand-written baseline |
+| `fish/baselines.py` | The rule-based and random players |
 
-You can also use the solver from Python:
+Using the solver from Python:
 
 ```python
 from fish.solver import Solver, describe
+from fish.value_net import load
 
-solver = Solver(seat=0, hand=["2S", "3S", "QH", "KH", "8D", "JK1", "9C", "TC", "AC"], first_player=3)
+net, _ = load("checkpoints/net.pt")
+solver = Solver(seat=0, hand=["2S", "3S", "QH", "KH", "8D", "JK1", "9C", "TC", "AC"],
+                first_player=3, net=net)
 solver.ask(target=0, card="4S")          # seat 3 asks you and misses; now it's your turn
 for move in solver.best_moves(top=3):
     print(describe(move), f"{move.chance:.0%}")
 ```
-
-## Learning the scoring by self-play (in progress)
-
-The scoring in steps 3 and 4 above is written by hand. The plan is to replace it with a value network trained by reinforcement learning: the program plays against itself and learns to predict, from what a player knows, how the game will end.
-
-| File | What it does |
-|---|---|
-| `fish/features.py` | Turns what a player knows into a list of 725 numbers |
-| `fish/value_net.py` | The network: those numbers in, predicted result out |
-| `fish/chooser.py` | Picks a move by scoring the positions each move can lead to |
-| `fish/selfplay.py` | Plays training games and builds the learning targets |
-| `scripts/train.py` | The training loop |
-
-To train (needs PyTorch):
-
-```bash
-uv pip install --python .venv/bin/python torch
-.venv/bin/python scripts/train.py --games 2000
-.venv/bin/python scripts/train.py --games 5000 --resume   # continue later
-```
-
-Every 50 games it saves `checkpoints/net.pt`, plays 10 games against the rule-based player and prints the result. Stop it any time with Ctrl-C; it saves before exiting.
-
-Still to do here: a fuller evaluation script, and letting `scripts/solve.py` use a trained network.
 
 ## Tests
 
@@ -148,16 +199,9 @@ Still to do here: a fuller evaluation script, and letting `scripts/solve.py` use
 .venv/bin/python -m pytest
 ```
 
-`tests/test_solver.py` plays a full simulated game with the solver in one seat and checks that it follows the game correctly and only ever suggests legal moves.
-
-## Still to do
-
-- Measure how good the advice is: play the solver against the simple computer players over many deals, and compare its choices with brute-force best moves on small endgames.
-- Tune based on what that shows.
-
 ## Things to know
 
 - **The game is played to all 9 sets.** Stopping at 5 would be a small change.
-- **The solver looks one move ahead.** It will not suggest an ask just to learn something, which strong human players sometimes do.
+- **The solver looks one move ahead.** The network's predictions stand in for the rest of the game.
 - **It assumes others ask about sets they hold a lot of.** A player who bluffs can mislead it. `--alpha 0` switches this off.
 - **After a wrong declaration it needs the card counts,** meaning how many cards of that set each seat held. At a real table these are visible when the cards are handed in.
