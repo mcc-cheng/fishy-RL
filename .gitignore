@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
-checkpoints/
+# trained networks stay on this computer; their training logs are kept
+checkpoints/*
+!checkpoints/*_log.csv
 results/

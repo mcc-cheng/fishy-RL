@@ -32,13 +32,15 @@ uv pip install --python .venv/bin/python numpy pytest torch
 
 Every 100 games it saves `checkpoints/net.pt`, plays 20 games against the rule-based player and 20 against the heuristic, and prints both results. The same numbers go into `checkpoints/net_log.csv`, which gives a learning curve. Stop it any time with Ctrl-C; it saves before exiting.
 
+The training logs are kept in this repository; the trained networks are not.
+
 ### 2. Measure it
 
 ```bash
-.venv/bin/python scripts/evaluate.py --games 100
+.venv/bin/python scripts/evaluate.py --games 400
 ```
 
-This plays the solver against the two baselines and prints its average set margin against each, with a confidence interval. Every deal is played twice with the teams swapped, so card luck mostly cancels. Results are saved to `results/evaluate.csv`; add `--resume` to continue a stopped run.
+This plays the solver against the two baselines and prints its average set margin against each, with a confidence interval. Fewer games is quicker but less exact. Every deal is played twice with the teams swapped, so card luck mostly cancels. Results are saved to `results/evaluate.csv`; add `--resume` to continue a stopped run.
 
 The players you can name with `--player` and `--against`:
 
@@ -131,25 +133,31 @@ To compare training setups, train one network per setup and measure each the sam
 ```bash
 .venv/bin/python scripts/train.py --games 2000 --warmup 0 --heuristic-share 0 --out checkpoints/selfplay.pt
 .venv/bin/python scripts/train.py --games 2000 --heuristic-share 1 --out checkpoints/heuristic_only.pt
-.venv/bin/python scripts/evaluate.py --checkpoint checkpoints/selfplay.pt --out results/selfplay.csv
+.venv/bin/python scripts/evaluate.py --games 400 --checkpoint checkpoints/selfplay.pt --out results/selfplay.csv
 ```
 
 ## Results so far
 
-The solver's average set margin per game (out of 9 sets) over 100 games against each baseline, with 95% confidence intervals. Positive means the solver did better.
+The solver's average set margin per game (out of 9 sets) against each baseline, with 95% confidence intervals. Positive means the solver did better.
 
 | Training setup | Against `rule` | Against `heuristic` |
 |---|---|---|
 | Self-play only, learning from the final result | −0.10 ± 0.61 (52% wins) | −3.52 ± 0.49 (9% wins) |
 | Self-play only, each declared set as a reward | +0.54 ± 0.53 (56% wins) | −2.94 ± 0.60 (17% wins) |
 | Warm start, mixed opponents, card probabilities as input (650 games) | about −0.2 | about −3.6 |
-| One prediction per set from a few numbers per set (current setup, 2000 games) | about +3.6 (93% wins) | about +0.6 (60% wins) |
+| **One prediction per set from a few numbers per set (current setup, 2000 games)** | **+3.40 ± 0.24 (92% wins)** | **+0.65 ± 0.31 (58% wins)** |
+| The same network trained on to 3000 games | +3.42 ± 0.25 (90% wins) | +0.40 ± 0.31 (54% wins) |
+| The same network trained on to 5000 games | +3.54 ± 0.27 (90% wins) | +0.39 ± 0.27 (56% wins) |
 
-The last two rows come from the short checks during training, not from a full evaluation: 10 games for the third row, and the average of the last ten 20-game checks for the fourth. Those checks reuse the same ten deals, so each number can be off by about a set.
+The first two rows are from 100 games against each baseline and the last three from 400. The third comes from 10-game checks during training, not from a full evaluation.
 
 The first three rows all used one large network that read every card separately (725 or 1049 inputs) and predicted the final score in one number. None got past the rule-based player: with a few hundred games, that network memorises the games it has seen instead of learning what makes a position good.
 
-The current setup replaced it and is the first that works. It beats the rule-based player by a wide margin and plays about as well as the heuristic. Whether it is really ahead of the heuristic needs a full evaluation. The earlier checkpoints no longer load.
+The current setup replaced it and is the first that works. The solver beats the rule-based player by 3.4 sets a game and the hand-written heuristic by about two thirds of a set, and both intervals are clear of zero. One of the 400 games against the heuristic did not finish within 3000 moves and counts with the sets scored up to then. The earlier checkpoints no longer load.
+
+Training longer made no measurable difference. The 2000, 3000 and 5000-game networks were measured on the same 200 deals, and the differences between them are within the noise (5000 against 2000 games: −0.27 ± 0.40 against the heuristic). Averaged over the three, the solver is +0.48 ± 0.18 sets ahead of the heuristic.
+
+The training logs of these three networks are `checkpoints/net_log.csv` (2000 games), `checkpoints/games3000_log.csv` and `checkpoints/games5000_log.csv`. Each has one line per 100 games of training.
 
 ## The heuristic baseline
 
